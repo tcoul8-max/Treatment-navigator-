@@ -1,4 +1,4 @@
-<meta name='viewport' content='width=device-width, initial-scale=1'/><!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -23,12 +23,196 @@
         .proximity-alert { color: var(--warning) !important; }
         
         /* Next Treatment Styling */
-        .next-card { border-top: 2px solid var(--preview); margin-top: 15px; padding-top: 10px; text-align: left; }
+        .next-card { border-top: 2px solid var(--preview); margin-top: 15px; padding-top: 10px; }
         .next-label { color: var(--preview); font-weight: bold; font-size: 0.9rem; margin-bottom: 3px; }
-        .next-val { font-size: 1.1rem; color: #bbb; font-style: italic; margin-bottom: 5px; }
-        .then-label { color: #888; font-size: 0.75rem; font-weight: bold; margin-top: 5px; }
+        .next-val { font-size: 1.2rem; color: #bbb; font-style: italic; }
 
         .fab { position: fixed; bottom: 25px; right: 25px; width: 60px; height: 60px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; z-index: 1000; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
         .drawer { position: fixed; bottom: -100%; left: 0; width: 100%; background: var(--card); border-radius: 25px 25px 0 0; padding: 30px 20px; box-sizing: border-box; transition: 0.4s; z-index: 999; border-top: 1px solid #444; }
         .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; z-index: 998; }
-        .status-bar { position:
+        .status-bar { position: absolute; bottom: 10px; width: 100%; text-align: center; font-size: 0.7rem; color: #555; }
+    </style>
+</head>
+<body>
+
+    <div class="tabs">
+        <div class="tab" id="t1" style="color: var(--accent); border-bottom: 4px solid var(--accent);" onclick="changeTab('p1', 't1')">GPS</div>
+        <div class="tab" id="t2" onclick="changeTab('p2', 't2')">TREATMENT</div>
+    </div>
+
+    <div class="container">
+        <div id="p1" class="panel" style="display: block;">
+            <div class="label">Road</div>
+            <div id="road-display" class="val">---</div>
+            <div class="label">Chainage</div>
+            <div id="km-display" class="val big">0</div>
+        </div>
+
+        <div id="p2" class="panel">
+            <div class="label">Current Treatment</div>
+            <div id="treat-display" class="val" style="color: var(--accent); min-height: 50px;">---</div>
+            
+            <div class="info-card">
+                <div id="dir-label" class="dir-text">Awaiting Movement</div>
+                <div class="label">Dist to Boundary</div>
+                <div id="rem-display" class="rem-val">0m</div>
+                <div id="range-display" style="font-size: 0.75rem; color: #666;">Range: ---</div>
+                
+                <div class="next-card">
+                    <div class="next-label">NEXT:</div>
+                    <div id="next-treat-display" class="next-val">None Found</div>
+                </div>
+            </div>
+        </div>
+        <div class="status-bar" id="gps-log">Ready: Load Files</div>
+    </div>
+
+    <div class="fab" onclick="toggleMenu()">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+    </div>
+
+    <div id="darkOverlay" class="overlay" onclick="toggleMenu()"></div>
+    <div id="fileDrawer" class="drawer">
+        <strong>LOAD DATA</strong><br><br>
+        <label class="label">1. Master GPS (CSV)</label><input type="file" id="fM" accept=".csv" style="width:100%; margin:10px 0 20px 0;">
+        <label class="label">2. Treatment (Excel/CSV)</label><input type="file" id="fT" accept=".csv, .xlsx, .xls" style="width:100%; margin:10px 0 20px 0;">
+        <button onclick="toggleMenu()" style="width:100%; padding:15px; background:var(--accent); border:none; color:white; font-weight:bold; border-radius:12px;">CLOSE & START</button>
+    </div>
+
+<script>
+    let master = [];
+    let treats = [];
+    let curRoad = "";
+    let curKm = 0;
+    let lastKm = 0;
+
+    function changeTab(panelId, tabId) {
+        document.querySelectorAll('.panel').forEach(p => p.style.display = 'none');
+        document.getElementById(panelId).style.display = 'block';
+        document.querySelectorAll('.tab').forEach(t => { t.style.color = '#555'; t.style.borderBottom = 'none'; });
+        document.getElementById(tabId).style.color = '#27ae60';
+        document.getElementById(tabId).style.borderBottom = '4px solid #27ae60';
+    }
+
+    function toggleMenu() {
+        const d = document.getElementById('fileDrawer');
+        const o = document.getElementById('darkOverlay');
+        const isOpen = d.style.bottom === '0px';
+        d.style.bottom = isOpen ? '-100%' : '0px';
+        o.style.display = isOpen ? 'none' : 'block';
+    }
+
+    function cleanName(n) {
+        return String(n || "").toLowerCase()
+            .replace(/\broad\b|\brd\b|\blane\b|\bln\b|\bstreet\b|\bst\b/g, '')
+            .replace(/\s+/g, '').trim();
+    }
+
+    async function loadAnyFile(file) {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, {type: 'array'});
+                const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                resolve(XLSX.utils.sheet_to_json(sheet, { defval: "" }));
+            };
+            reader.readAsArrayBuffer(file);
+        });
+    }
+
+    document.getElementById('fM').addEventListener('change', async (e) => {
+        const raw = await loadAnyFile(e.target.files[0]);
+        master = raw.map(r => {
+            const keys = Object.keys(r);
+            return { km: r[keys[0]], lat: parseFloat(r[keys[1]]), lon: parseFloat(r[keys[2]]), road: r[keys[4]] };
+        }).filter(p => !isNaN(p.lat));
+        document.getElementById('gps-log').innerText = "Master loaded.";
+        startGPS();
+    });
+
+    document.getElementById('fT').addEventListener('change', async (e) => {
+        treats = await loadAnyFile(e.target.files[0]);
+        document.getElementById('gps-log').innerText = "Treatment loaded.";
+    });
+
+    function startGPS() {
+        navigator.geolocation.watchPosition(pos => {
+            let closest = null;
+            let minD = Infinity;
+            master.forEach(p => {
+                const d = Math.hypot(pos.coords.latitude - p.lat, pos.coords.longitude - p.lon);
+                if (d < minD) { minD = d; closest = p; }
+            });
+            if (closest) {
+                lastKm = curKm;
+                curRoad = closest.road;
+                curKm = parseFloat(closest.km);
+                document.getElementById('road-display').innerText = curRoad;
+                document.getElementById('km-display').innerText = Math.round(curKm);
+                updateTreatment();
+            }
+        }, null, { enableHighAccuracy: true });
+    }
+
+    function updateTreatment() {
+        if (treats.length === 0) return;
+        const cleanedCurRoad = cleanName(curRoad);
+
+        // Find Current Match
+        const matchIndex = treats.findIndex(t => {
+            const keys = Object.keys(t);
+            const rVal = cleanName(t[keys[0]] || t["Road"] || t["Asset / Road name"]);
+            const start = parseFloat(t[keys[1]] || t["Start"] || 0);
+            const end = parseFloat(t[keys[2]] || t["End"] || 0);
+            return rVal === cleanedCurRoad && curKm >= start && curKm <= end;
+        });
+
+        if (matchIndex !== -1) {
+            const match = treats[matchIndex];
+            const keys = Object.keys(match);
+            const start = parseFloat(match[keys[1]]);
+            const end = parseFloat(match[keys[2]]);
+            const name = match[keys[3]];
+
+            let rem = 0;
+            let dir = "Standing Still";
+            let nextMatch = null;
+
+            if (curKm > lastKm) { 
+                dir = "Forward"; 
+                rem = Math.round(end - curKm);
+                // Look ahead for the next start that matches current end
+                nextMatch = treats.find(t => cleanName(t[keys[0]]) === cleanedCurRoad && parseFloat(t[keys[1]]) === end);
+            } else if (curKm < lastKm) { 
+                dir = "Backward"; 
+                rem = Math.round(curKm - start);
+                // Look back for the previous end that matches current start
+                nextMatch = treats.find(t => cleanName(t[keys[0]]) === cleanedCurRoad && parseFloat(t[keys[2]]) === start);
+            } else {
+                dir = "Standing Still";
+                rem = Math.round(end - curKm);
+            }
+
+            // Update UI
+            const remDisplay = document.getElementById('rem-display');
+            remDisplay.innerText = Math.abs(rem) + "m";
+            if (Math.abs(rem) <= 50) remDisplay.classList.add('proximity-alert');
+            else remDisplay.classList.remove('proximity-alert');
+
+            document.getElementById('treat-display').innerText = name;
+            document.getElementById('dir-label').innerText = dir;
+            document.getElementById('range-display').innerText = `Range: ${Math.round(start)} - ${Math.round(end)}`;
+            
+            // Preview Display
+            document.getElementById('next-treat-display').innerText = nextMatch ? nextMatch[keys[3]] : "End of Road / Unknown";
+
+        } else {
+            document.getElementById('treat-display').innerText = "No Active Treatment";
+            document.getElementById('rem-display').innerText = "---";
+            document.getElementById('next-treat-display').innerText = "---";
+        }
+    }
+</script>
+</body>
+</html>
