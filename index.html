@@ -23,9 +23,10 @@
         .proximity-alert { color: var(--warning) !important; }
         
         /* Next Treatment Styling */
-        .next-card { border-top: 2px solid var(--preview); margin-top: 15px; padding-top: 10px; }
-        .next-label { color: var(--preview); font-weight: bold; font-size: 0.9rem; margin-bottom: 3px; }
-        .next-val { font-size: 1.2rem; color: #bbb; font-style: italic; }
+        .next-card { border-top: 2px solid var(--preview); margin-top: 15px; padding-top: 10px; text-align: left; }
+        .next-label { color: var(--preview); font-weight: bold; font-size: 0.8rem; margin-bottom: 2px; }
+        .next-val { font-size: 1.1rem; color: #bbb; font-style: italic; margin-bottom: 8px; }
+        .then-label { color: #777; font-weight: bold; font-size: 0.75rem; margin-top: 5px; }
 
         .fab { position: fixed; bottom: 25px; right: 25px; width: 60px; height: 60px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; z-index: 1000; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
         .drawer { position: fixed; bottom: -100%; left: 0; width: 100%; background: var(--card); border-radius: 25px 25px 0 0; padding: 30px 20px; box-sizing: border-box; transition: 0.4s; z-index: 999; border-top: 1px solid #444; }
@@ -61,6 +62,9 @@
                 <div class="next-card">
                     <div class="next-label">NEXT:</div>
                     <div id="next-treat-display" class="next-val">None Found</div>
+                    
+                    <div class="then-label">THEN:</div>
+                    <div id="then-treat-display" class="next-val" style="color: #888; font-size: 0.95rem;">None Found</div>
                 </div>
             </div>
         </div>
@@ -85,6 +89,7 @@
     let curRoad = "";
     let curKm = 0;
     let lastKm = 0;
+    let smoothedDir = "Standing Still";
 
     function changeTab(panelId, tabId) {
         document.querySelectorAll('.panel').forEach(p => p.style.display = 'none');
@@ -145,9 +150,19 @@
                 if (d < minD) { minD = d; closest = p; }
             });
             if (closest) {
-                lastKm = curKm;
+                let newKm = parseFloat(closest.km);
+                
+                // Direction Smoothing Logic: Only update if moved > 3 meters
+                if (Math.abs(newKm - curKm) > 3) {
+                    smoothedDir = newKm > curKm ? "Forward" : "Backward";
+                    lastKm = curKm;
+                    curKm = newKm;
+                } else if (Math.abs(newKm - curKm) < 1) {
+                    // Very small change, likely just GPS jitter while parked
+                    smoothedDir = "Standing Still";
+                }
+
                 curRoad = closest.road;
-                curKm = parseFloat(closest.km);
                 document.getElementById('road-display').innerText = curRoad;
                 document.getElementById('km-display').innerText = Math.round(curKm);
                 updateTreatment();
@@ -159,7 +174,6 @@
         if (treats.length === 0) return;
         const cleanedCurRoad = cleanName(curRoad);
 
-        // Find Current Match
         const matchIndex = treats.findIndex(t => {
             const keys = Object.keys(t);
             const rVal = cleanName(t[keys[0]] || t["Road"] || t["Asset / Road name"]);
@@ -174,24 +188,26 @@
             const start = parseFloat(match[keys[1]]);
             const end = parseFloat(match[keys[2]]);
             const name = match[keys[3]];
+            const currentLen = Math.round(Math.abs(end - start));
 
             let rem = 0;
-            let dir = "Standing Still";
             let nextMatch = null;
+            let thenMatch = null;
 
-            if (curKm > lastKm) { 
-                dir = "Forward"; 
+            if (smoothedDir === "Forward" || smoothedDir === "Standing Still") { 
                 rem = Math.round(end - curKm);
-                // Look ahead for the next start that matches current end
                 nextMatch = treats.find(t => cleanName(t[keys[0]]) === cleanedCurRoad && parseFloat(t[keys[1]]) === end);
-            } else if (curKm < lastKm) { 
-                dir = "Backward"; 
+                if (nextMatch) {
+                    const nextEnd = parseFloat(nextMatch[keys[2]]);
+                    thenMatch = treats.find(t => cleanName(t[keys[0]]) === cleanedCurRoad && parseFloat(t[keys[1]]) === nextEnd);
+                }
+            } else if (smoothedDir === "Backward") { 
                 rem = Math.round(curKm - start);
-                // Look back for the previous end that matches current start
                 nextMatch = treats.find(t => cleanName(t[keys[0]]) === cleanedCurRoad && parseFloat(t[keys[2]]) === start);
-            } else {
-                dir = "Standing Still";
-                rem = Math.round(end - curKm);
+                if (nextMatch) {
+                    const nextStart = parseFloat(nextMatch[keys[1]]);
+                    thenMatch = treats.find(t => cleanName(t[keys[0]]) === cleanedCurRoad && parseFloat(t[keys[2]]) === nextStart);
+                }
             }
 
             // Update UI
@@ -200,17 +216,31 @@
             if (Math.abs(rem) <= 50) remDisplay.classList.add('proximity-alert');
             else remDisplay.classList.remove('proximity-alert');
 
-            document.getElementById('treat-display').innerText = name;
-            document.getElementById('dir-label').innerText = dir;
+            document.getElementById('treat-display').innerText = `${name} (${currentLen}m)`;
+            document.getElementById('dir-label').innerText = smoothedDir;
             document.getElementById('range-display').innerText = `Range: ${Math.round(start)} - ${Math.round(end)}`;
             
-            // Preview Display
-            document.getElementById('next-treat-display').innerText = nextMatch ? nextMatch[keys[3]] : "End of Road / Unknown";
+            // NEXT Display
+            if (nextMatch) {
+                const nLen = Math.round(Math.abs(nextMatch[keys[2]] - nextMatch[keys[1]]));
+                document.getElementById('next-treat-display').innerText = `${nextMatch[keys[3]]} (${nLen}m)`;
+            } else {
+                document.getElementById('next-treat-display').innerText = "End of Road / Unknown";
+            }
+
+            // THEN Display
+            if (thenMatch) {
+                const tLen = Math.round(Math.abs(thenMatch[keys[2]] - thenMatch[keys[1]]));
+                document.getElementById('then-treat-display').innerText = `${thenMatch[keys[3]]} (${tLen}m)`;
+            } else {
+                document.getElementById('then-treat-display').innerText = "---";
+            }
 
         } else {
             document.getElementById('treat-display').innerText = "No Active Treatment";
             document.getElementById('rem-display').innerText = "---";
             document.getElementById('next-treat-display').innerText = "---";
+            document.getElementById('then-treat-display').innerText = "---";
         }
     }
 </script>
