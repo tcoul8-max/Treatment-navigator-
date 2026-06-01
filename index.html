@@ -3,246 +3,597 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Universal Road Tracker + Preview</title>
-    <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
-    
+    <title>Maps</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        :root { --accent: #27ae60; --bg: #121212; --card: #1e1e1e; --warning: #e74c3c; --preview: #3498db; }
-        body { font-family: sans-serif; background: var(--bg); color: white; margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-        .tabs { display: flex; background: #000; border-bottom: 1px solid #333; }
-        .tab { flex: 1; padding: 20px; text-align: center; font-weight: bold; color: #555; cursor: pointer; }
-        .container { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; }
-        .panel { width: 90%; text-align: center; display: none; }
-        .label { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 1px; }
-        .val { font-size: 1.8rem; font-weight: bold; margin-bottom: 10px; word-wrap: break-word; }
-        .big { font-size: 5.5rem; color: var(--accent); line-height: 1; margin: 5px 0; }
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            background: #f8f9fa;
+        }
+        #controls {
+            background: #2c3e50;
+            color: white;
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 2000; /* Bumped up to confidently clear map layers */
+            box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+            height: 35px;
+            position: relative;
+        }
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        #controls h2 {
+            margin: 0;
+            font-size: 1.3rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
         
-        .info-card { background: #1a1a1a; padding: 15px; border-radius: 12px; border: 1px solid #333; margin-top: 10px; }
-        .dir-text { color: #f1c40f; font-weight: bold; text-transform: uppercase; font-size: 0.8rem; margin-bottom: 5px; }
-        .rem-val { font-size: 2.8rem; font-weight: 800; color: #fff; }
-        .proximity-alert { color: var(--warning) !important; }
+        .actions-right {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .icon-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            transition: background 0.2s;
+            position: relative;
+        }
+        .icon-btn:hover { background: rgba(255,255,255,0.1); }
+        .icon-btn svg {
+            fill: white;
+            width: 22px;
+            height: 22px;
+        }
         
-        /* Next Treatment Styling */
-        .next-card { border-top: 2px solid var(--preview); margin-top: 15px; padding-top: 10px; text-align: left; }
-        .next-label { color: var(--preview); font-weight: bold; font-size: 0.8rem; margin-bottom: 2px; }
-        .next-val { font-size: 1.1rem; color: #bbb; font-style: italic; margin-bottom: 8px; }
-        .then-label { color: #777; font-weight: bold; font-size: 0.75rem; margin-top: 5px; }
+        /* File upload wrapper & Green indicator */
+        .file-wrapper { position: relative; }
+        #file-input {
+            position: absolute;
+            left: 0; top: 0; width: 100%; height: 100%;
+            opacity: 0; cursor: pointer;
+        }
+        #upload-indicator {
+            position: absolute;
+            bottom: -10px; left: 0; width: 0%; height: 3px;
+            background: #2ecc71;
+            transition: width 0.4s ease;
+        }
 
-        .fab { position: fixed; bottom: 25px; right: 25px; width: 60px; height: 60px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; z-index: 1000; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-        .drawer { position: fixed; bottom: -100%; left: 0; width: 100%; background: var(--card); border-radius: 25px 25px 0 0; padding: 30px 20px; box-sizing: border-box; transition: 0.4s; z-index: 999; border-top: 1px solid #444; }
-        .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; z-index: 998; }
-        .status-bar { position: absolute; bottom: 10px; width: 100%; text-align: center; font-size: 0.7rem; color: #555; }
+        /* Search UI Box */
+        .search-container { position: relative; }
+        .search-box-wrapper {
+            display: none;
+            position: absolute;
+            right: 0;
+            top: 40px;
+            background: white;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            width: 350px;
+            overflow: hidden;
+            border: 1px solid #ddd;
+            z-index: 3000; /* Ensure search results sit above absolutely everything */
+        }
+        #search-input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 12px 14px;
+            border: none;
+            border-bottom: 1px solid #eee;
+            font-size: 14px;
+            outline: none;
+        }
+        #search-results {
+            max-height: 280px;
+            overflow-y: auto;
+            margin: 0; padding: 0;
+            list-style: none;
+            background: white;
+        }
+        #search-results li {
+            padding: 11px 14px;
+            font-size: 13px;
+            color: #333;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #f5f5f5;
+        }
+        #search-results li:hover { background: #f1f3f5; }
+        #search-results li .road-meta {
+            font-weight: 600;
+            color: #7f8c8d;
+            background: #eef2f3;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            white-space: nowrap;
+        }
+        #search-results li .gps-subtext {
+            display: block;
+            font-size: 11px;
+            color: #e74c3c;
+            margin-top: 2px;
+            font-weight: normal;
+        }
+
+        #map { flex-grow: 1; width: 100%; }
+        
+        /* Tooltip & Location Styles */
+        .chainage-label {
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid #222;
+            border-radius: 3px;
+            padding: 1px 4px;
+            font-size: 10px;
+            font-weight: bold;
+            color: #111;
+            pointer-events: none;
+        }
+        .road-label {
+            background: rgba(44, 62, 80, 0.95);
+            border: 1px solid #2c3e50;
+            border-radius: 4px;
+            padding: 3px 7px;
+            font-size: 11px;
+            font-weight: bold;
+            color: white;
+            white-space: nowrap;
+            pointer-events: none;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        
+        /* Location pulse marker */
+        .my-location-marker {
+            background: #3498db;
+            border: 2px solid white;
+            border-radius: 50%;
+            box-shadow: 0 0 0 4px rgba(52, 152, 219, 0.4);
+            width: 12px !important;
+            height: 12px !important;
+        }
+        .my-location-label {
+            background: #3498db;
+            border: 1px solid #2980b9;
+            border-radius: 3px;
+            padding: 2px 5px;
+            font-size: 10px;
+            font-weight: bold;
+            color: white;
+            white-space: nowrap;
+        }
     </style>
 </head>
 <body>
 
-    <div class="tabs">
-        <div class="tab" id="t1" style="color: var(--accent); border-bottom: 4px solid var(--accent);" onclick="changeTab('p1', 't1')">GPS</div>
-        <div class="tab" id="t2" onclick="changeTab('p2', 't2')">TREATMENT</div>
-    </div>
-
-    <div class="container">
-        <div id="p1" class="panel" style="display: block;">
-            <div class="label">Road</div>
-            <div id="road-display" class="val">---</div>
-            <div class="label">Chainage</div>
-            <div id="km-display" class="val big">0</div>
+    <div id="controls">
+        <div class="header-left">
+            <h2>Maps</h2>
         </div>
 
-        <div id="p2" class="panel">
-            <div class="label">Current Treatment</div>
-            <div id="treat-display" class="val" style="color: var(--accent); min-height: 50px;">---</div>
-            
-            <div class="info-card">
-                <div id="dir-label" class="dir-text">Awaiting Movement</div>
-                <div class="label">Dist to Boundary</div>
-                <div id="rem-display" class="rem-val">0m</div>
-                <div id="range-display" style="font-size: 0.75rem; color: #666;">Range: ---</div>
-                
-                <div class="next-card">
-                    <div class="next-label">NEXT:</div>
-                    <div id="next-treat-display" class="next-val">None Found</div>
-                    
-                    <div class="then-label">THEN:</div>
-                    <div id="then-treat-display" class="next-val" style="color: #888; font-size: 0.95rem;">None Found</div>
+        <div class="actions-right">
+            <button class="icon-btn" id="locate-btn" title="Center on My Location" style="display: none;">
+                <svg viewBox="0 0 24 24"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3c-.51-4.38-4.06-7.93-8.44-8.44V1c0-.55-.45-1-1-1s-1 .45-1 1v1.56C6.12 3.07 2.57 6.62 2.06 11H1c-.55 0-1 .45-1 1s.45 1 1 1h1.06c.51 4.38 4.06 7.93 8.44 8.44V23c0 .55 scholarship-.45 1 1 1s1-.45 1-1v-1.56c4.38-.51 7.93-4.06 8.44-8.44H23c0-.55-.45-1-1-1s-1 .45-1 1h-1.06zM12 21c-4.97 0-9-4.03-9-9s4.03-9 9-9 9 4.03 9 9-4.03 9-9 9z"/></svg>
+            </button>
+
+            <div class="file-wrapper">
+                <button class="icon-btn" title="Upload CSV File">
+                    <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+                </button>
+                <input type="file" id="file-input" accept=".csv" />
+                <div id="upload-indicator"></div>
+            </div>
+
+            <div class="search-container" id="search-container" style="display: none;">
+                <button class="icon-btn" id="search-toggle-btn" title="Search Roads or GPS Coordinates">
+                    <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                </button>
+                <div class="search-box-wrapper" id="search-box-wrapper">
+                    <input type="text" id="search-input" placeholder="Search road name or paste 'Lat, Lng'..." autocomplete="off"/>
+                    <ul id="search-results"></ul>
                 </div>
             </div>
         </div>
-        <div class="status-bar" id="gps-log">Ready: Load Files</div>
     </div>
 
-    <div class="fab" onclick="toggleMenu()">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
-    </div>
+    <div id="map"></div>
 
-    <div id="darkOverlay" class="overlay" onclick="toggleMenu()"></div>
-    <div id="fileDrawer" class="drawer">
-        <strong>LOAD DATA</strong><br><br>
-        <label class="label">1. Master GPS (CSV)</label><input type="file" id="fM" accept=".csv" style="width:100%; margin:10px 0 20px 0;">
-        <label class="label">2. Treatment (Excel/CSV)</label><input type="file" id="fT" accept=".csv, .xlsx, .xls" style="width:100%; margin:10px 0 20px 0;">
-        <button onclick="toggleMenu()" style="width:100%; padding:15px; background:var(--accent); border:none; color:white; font-weight:bold; border-radius:12px;">CLOSE & START</button>
-    </div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 
-<script>
-    let master = [];
-    let treats = [];
-    let curRoad = "";
-    let curKm = 0;
-    let lastKm = 0;
-    let smoothedDir = "Standing Still";
+    <script>
+        const preferCanvasRenderer = L.canvas({ padding: 0.5 });
+        
+        // Clean layout adjustments: Explicitly shifted native zoom controls out of top-right
+        const map = L.map('map', { 
+            preferCanvas: true,
+            zoomControl: false 
+        }).setView([0, 0], 2);
+        
+        // Re-inject zoom buttons safely to bottom-right out of search dropdown view path
+        L.control.zoom({ position: 'bottomright' }).addTo(map);
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
 
-    function changeTab(panelId, tabId) {
-        document.querySelectorAll('.panel').forEach(p => p.style.display = 'none');
-        document.getElementById(panelId).style.display = 'block';
-        document.querySelectorAll('.tab').forEach(t => { t.style.color = '#555'; t.style.borderBottom = 'none'; });
-        document.getElementById(tabId).style.color = '#27ae60';
-        document.getElementById(tabId).style.borderBottom = '4px solid #27ae60';
-    }
+        const linesLayerGroup = L.layerGroup().addTo(map);
+        const dynamicLabelsGroup = L.layerGroup().addTo(map);
+        
+        // Pin layer specifically designated for holding Geolocation pins
+        const myLocationLayerGroup = L.layerGroup().addTo(map);
 
-    function toggleMenu() {
-        const d = document.getElementById('fileDrawer');
-        const o = document.getElementById('darkOverlay');
-        const isOpen = d.style.bottom === '0px';
-        d.style.bottom = isOpen ? '-100%' : '0px';
-        o.style.display = isOpen ? 'none' : 'block';
-    }
+        const ZOOM_THRESHOLD_CHAINAGE = 16; 
+        const ZOOM_THRESHOLD_ROAD_NAME = 13; 
 
-    function cleanName(n) {
-        return String(n || "").toLowerCase()
-            .replace(/\broad\b|\brd\b|\blane\b|\bln\b|\bstreet\b|\bst\b/g, '')
-            .replace(/\s+/g, '').trim();
-    }
+        const colors = ['#e74c3c', '#3498db', '#2ecc71', '#f1c40f', '#9b59b6', '#1abc9c', '#e67e22'];
+        let colorIndex = 0;
 
-    async function loadAnyFile(file) {
-        return new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, {type: 'array'});
-                const sheet = workbook.Sheets[workbook.SheetNames[0]];
-                resolve(XLSX.utils.sheet_to_json(sheet, { defval: "" }));
-            };
-            reader.readAsArrayBuffer(file);
-        });
-    }
+        let globalRoadData = {};
+        let parsedPolylines = [];
+        let roadIndexList = [];
+        let userLatLng = null;
 
-    document.getElementById('fM').addEventListener('change', async (e) => {
-        const raw = await loadAnyFile(e.target.files[0]);
-        master = raw.map(r => {
-            const keys = Object.keys(r);
-            return { km: r[keys[0]], lat: parseFloat(r[keys[1]]), lon: parseFloat(r[keys[2]]), road: r[keys[4]] };
-        }).filter(p => !isNaN(p.lat));
-        document.getElementById('gps-log').innerText = "Master loaded.";
-        startGPS();
-    });
-
-    document.getElementById('fT').addEventListener('change', async (e) => {
-        treats = await loadAnyFile(e.target.files[0]);
-        document.getElementById('gps-log').innerText = "Treatment loaded.";
-    });
-
-    function startGPS() {
-        navigator.geolocation.watchPosition(pos => {
-            let closest = null;
-            let minD = Infinity;
-            master.forEach(p => {
-                const d = Math.hypot(pos.coords.latitude - p.lat, pos.coords.longitude - p.lon);
-                if (d < minD) { minD = d; closest = p; }
-            });
-            if (closest) {
-                let newKm = parseFloat(closest.km);
-                
-                // Direction Smoothing Logic: Only update if moved > 3 meters
-                if (Math.abs(newKm - curKm) > 3) {
-                    smoothedDir = newKm > curKm ? "Forward" : "Backward";
-                    lastKm = curKm;
-                    curKm = newKm;
-                } else if (Math.abs(newKm - curKm) < 1) {
-                    // Very small change, likely just GPS jitter while parked
-                    smoothedDir = "Standing Still";
-                }
-
-                curRoad = closest.road;
-                document.getElementById('road-display').innerText = curRoad;
-                document.getElementById('km-display').innerText = Math.round(curKm);
-                updateTreatment();
-            }
-        }, null, { enableHighAccuracy: true });
-    }
-
-    function updateTreatment() {
-        if (treats.length === 0) return;
-        const cleanedCurRoad = cleanName(curRoad);
-
-        const matchIndex = treats.findIndex(t => {
-            const keys = Object.keys(t);
-            const rVal = cleanName(t[keys[0]] || t["Road"] || t["Asset / Road name"]);
-            const start = parseFloat(t[keys[1]] || t["Start"] || 0);
-            const end = parseFloat(t[keys[2]] || t["End"] || 0);
-            return rVal === cleanedCurRoad && curKm >= start && curKm <= end;
-        });
-
-        if (matchIndex !== -1) {
-            const match = treats[matchIndex];
-            const keys = Object.keys(match);
-            const start = parseFloat(match[keys[1]]);
-            const end = parseFloat(match[keys[2]]);
-            const name = match[keys[3]];
-            const currentLen = Math.round(Math.abs(end - start));
-
-            let rem = 0;
-            let nextMatch = null;
-            let thenMatch = null;
-
-            if (smoothedDir === "Forward" || smoothedDir === "Standing Still") { 
-                rem = Math.round(end - curKm);
-                nextMatch = treats.find(t => cleanName(t[keys[0]]) === cleanedCurRoad && parseFloat(t[keys[1]]) === end);
-                if (nextMatch) {
-                    const nextEnd = parseFloat(nextMatch[keys[2]]);
-                    thenMatch = treats.find(t => cleanName(t[keys[0]]) === cleanedCurRoad && parseFloat(t[keys[1]]) === nextEnd);
-                }
-            } else if (smoothedDir === "Backward") { 
-                rem = Math.round(curKm - start);
-                nextMatch = treats.find(t => cleanName(t[keys[0]]) === cleanedCurRoad && parseFloat(t[keys[2]]) === start);
-                if (nextMatch) {
-                    const nextStart = parseFloat(nextMatch[keys[1]]);
-                    thenMatch = treats.find(t => cleanName(t[keys[0]]) === cleanedCurRoad && parseFloat(t[keys[2]]) === nextStart);
-                }
-            }
-
-            // Update UI
-            const remDisplay = document.getElementById('rem-display');
-            remDisplay.innerText = Math.abs(rem) + "m";
-            if (Math.abs(rem) <= 50) remDisplay.classList.add('proximity-alert');
-            else remDisplay.classList.remove('proximity-alert');
-
-            document.getElementById('treat-display').innerText = `${name} (${currentLen}m)`;
-            document.getElementById('dir-label').innerText = smoothedDir;
-            document.getElementById('range-display').innerText = `Range: ${Math.round(start)} - ${Math.round(end)}`;
-            
-            // NEXT Display
-            if (nextMatch) {
-                const nLen = Math.round(Math.abs(nextMatch[keys[2]] - nextMatch[keys[1]]));
-                document.getElementById('next-treat-display').innerText = `${nextMatch[keys[3]]} (${nLen}m)`;
-            } else {
-                document.getElementById('next-treat-display').innerText = "End of Road / Unknown";
-            }
-
-            // THEN Display
-            if (thenMatch) {
-                const tLen = Math.round(Math.abs(thenMatch[keys[2]] - thenMatch[keys[1]]));
-                document.getElementById('then-treat-display').innerText = `${thenMatch[keys[3]]} (${tLen}m)`;
-            } else {
-                document.getElementById('then-treat-display').innerText = "---";
-            }
-
-        } else {
-            document.getElementById('treat-display').innerText = "No Active Treatment";
-            document.getElementById('rem-display').innerText = "---";
-            document.getElementById('next-treat-display').innerText = "---";
-            document.getElementById('then-treat-display').innerText = "---";
+        function getWeightForZoom(zoom) {
+            if (zoom >= 18) return 1.5;
+            if (zoom >= 16) return 2;
+            if (zoom >= 14) return 3;
+            if (zoom >= 11) return 4;
+            return 5;
         }
-    }
-</script>
+
+        function flatDistanceSquare(lat1, lng1, lat2, lng2) {
+            const dLat = lat2 - lat1;
+            const dLng = lng2 - lng1;
+            return dLat * dLat + dLng * dLng;
+        }
+
+        document.getElementById('file-input').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const indicator = document.getElementById('upload-indicator');
+            indicator.style.width = "40%"; 
+            
+            linesLayerGroup.clearLayers();
+            dynamicLabelsGroup.clearLayers();
+            globalRoadData = {};
+            parsedPolylines = [];
+            roadIndexList = [];
+            colorIndex = 0;
+
+            Papa.parse(file, {
+                header: false, 
+                skipEmptyLines: true,
+                dynamicTyping: true, 
+                chunk: function(results) {
+                    for (let i = 0; i < results.data.length; i++) {
+                        const row = results.data[i];
+                        if (row.length < 5) continue; 
+                        
+                        const chainage = row[0];
+                        const lat = parseFloat(row[1]);
+                        const lng = parseFloat(row[2]);
+                        const assetId = String(row[3]).trim();
+                        const roadName = String(row[4]).trim();
+
+                        if (isNaN(lat) || isNaN(lng)) continue;
+                        const uniqueRoadKey = assetId + "_" + roadName;
+
+                        if (!globalRoadData[uniqueRoadKey]) {
+                            globalRoadData[uniqueRoadKey] = {
+                                displayName: roadName,
+                                assetId: assetId,
+                                points: [],
+                                bounds: null
+                            };
+                        }
+                        
+                        globalRoadData[uniqueRoadKey].points.push({
+                            chainage: chainage,
+                            latLng: [lat, lng]
+                        });
+                    }
+                },
+                complete: function() {
+                    let allBounds = L.latLngBounds();
+                    let colorMap = {};
+                    const currentZoom = map.getZoom();
+                    const startingWeight = getWeightForZoom(currentZoom);
+
+                    for (const uniqueKey in globalRoadData) {
+                        const road = globalRoadData[uniqueKey];
+                        road.points.sort((a, b) => a.chainage - b.chainage);
+                        const coords = road.points.map(p => p.latLng);
+                        
+                        const maxChainage = road.points[road.points.length - 1].chainage;
+                        const lengthDisplay = (maxChainage / 1000).toFixed(1) + "km";
+
+                        if (!colorMap[uniqueKey]) {
+                            colorMap[uniqueKey] = colors[colorIndex % colors.length];
+                            colorIndex++;
+                        }
+                        const roadColor = colorMap[uniqueKey];
+
+                        const polyline = L.polyline(coords, {
+                            color: roadColor,
+                            weight: startingWeight,
+                            opacity: 0.85,
+                            renderer: preferCanvasRenderer
+                        }).addTo(linesLayerGroup);
+
+                        road.bounds = polyline.getBounds();
+                        parsedPolylines.push(polyline);
+                        allBounds.extend(road.bounds);
+
+                        roadIndexList.push({
+                            uniqueKey: uniqueKey,
+                            displayName: road.displayName,
+                            lengthStr: lengthDisplay,
+                            bounds: road.bounds
+                        });
+                    }
+
+                    if (allBounds.isValid()) {
+                        map.fitBounds(allBounds);
+                        indicator.style.width = "100%"; 
+                        document.getElementById('search-container').style.display = "block";
+                        
+                        // Fire browser Geolocation active tracker pipeline
+                        startLiveLocationTracking();
+                    }
+                    updateMapViewport();
+                }
+            });
+        });
+
+        // Geolocation Engine 
+        function startLiveLocationTracking() {
+            if (!navigator.geolocation) return;
+
+            document.getElementById('locate-btn').style.display = "block";
+
+            navigator.geolocation.watchPosition(
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    userLatLng = [lat, lng];
+
+                    renderUserLocationMarker();
+                },
+                (error) => { console.warn("Location tracking access restricted:", error); },
+                { enableHighAccuracy: true, maximumAge: 10000 }
+            );
+        }
+
+        // Live calculation matching your immediate GPS coordinate point against dataset coordinates
+        function renderUserLocationMarker() {
+            if (!userLatLng || Object.keys(globalRoadData).length === 0) return;
+
+            myLocationLayerGroup.clearLayers();
+
+            let closestRoadName = "Unknown Road";
+            let closestChainage = "N/A";
+            let minDistance = Infinity;
+
+            // Spatial sweep array checking for nearest road coordinate relative to current location
+            for (const key in globalRoadData) {
+                const road = globalRoadData[key];
+                for (let i = 0; i < road.points.length; i++) {
+                    const p = road.points[i];
+                    const dist = flatDistanceSquare(userLatLng[0], userLatLng[1], p.latLng[0], p.latLng[1]);
+                    if (dist < minDistance) {
+                        minDistance = dist;
+                        closestRoadName = road.displayName;
+                        closestChainage = p.chainage;
+                    }
+                }
+            }
+
+            // Construct Blue Marker + Dynamic Blue Chainage text tag combo
+            const labelContent = `${closestRoadName} (CH: ${closestChainage})`;
+            
+            L.marker(userLatLng, {
+                icon: L.divIcon({ className: 'my-location-marker' }),
+                zindexOffset: 10000 // Force blue point to always paint above lines
+            })
+            .bindTooltip(labelContent, { 
+                permanent: true, 
+                direction: 'top', 
+                className: 'my-location-label',
+                offset: [0, -8]
+            })
+            .addTo(myLocationLayerGroup);
+        }
+
+        // Snap View button behavior handler
+        document.getElementById('locate-btn').addEventListener('click', () => {
+            if (userLatLng) {
+                map.setView(userLatLng, 17);
+            } else {
+                alert("Acquiring GPS location fix... please ensure device location services are switched on.");
+            }
+        });
+
+        // Search Interface & Search Box Toggle
+        const searchToggleBtn = document.getElementById('search-toggle-btn');
+        const searchBoxWrapper = document.getElementById('search-box-wrapper');
+        const searchInput = document.getElementById('search-input');
+        const searchResultsUl = document.getElementById('search-results');
+
+        searchToggleBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = searchBoxWrapper.style.display === 'block';
+            searchBoxWrapper.style.display = isOpen ? 'none' : 'block';
+            if (!isOpen) searchInput.focus();
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!document.getElementById('search-container').contains(e.target)) {
+                searchBoxWrapper.style.display = 'none';
+            }
+        });
+
+        searchInput.addEventListener('input', () => {
+            const query = searchInput.value.trim();
+            searchResultsUl.innerHTML = '';
+            if (query === '') return;
+
+            const gpsRegex = /^[-+]?([1-9]?\d(\.\d+)?|90(\.0+)?),\s*[-+]?(180(\.0+)?|((1[0-7]\d)|([1-9]?\d))(\.\d+)?)$/;
+            
+            if (gpsRegex.test(query)) {
+                const parts = query.split(',');
+                const qLat = parseFloat(parts[0]);
+                const qLng = parseFloat(parts[1]);
+
+                if (!isNaN(qLat) && !isNaN(qLng)) {
+                    let closestRoad = null;
+                    let closestPt = null;
+                    let minDistance = Infinity;
+
+                    for (const key in globalRoadData) {
+                        const road = globalRoadData[key];
+                        for (let i = 0; i < road.points.length; i++) {
+                            const p = road.points[i];
+                            const dist = flatDistanceSquare(qLat, qLng, p.latLng[0], p.latLng[1]);
+                            if (dist < minDistance) {
+                                minDistance = dist;
+                                closestRoad = road;
+                                closestPt = p;
+                            }
+                        }
+                    }
+
+                    if (closestRoad && closestPt) {
+                        const li = document.createElement('li');
+                        li.innerHTML = `
+                            <div>
+                                <strong>Closest Road Found</strong>
+                                <span class="gps-subtext">${closestRoad.displayName}</span>
+                            </div>
+                            <span class="road-meta">CH: ${closestPt.chainage}</span>
+                        `;
+                        li.addEventListener('click', () => {
+                            map.setView(closestPt.latLng, 18);
+                            L.popup()
+                                .setLatLng(closestPt.latLng)
+                                .setContent(`<b>${closestRoad.displayName}</b><br>Chainage: ${closestPt.chainage}`)
+                                .openOn(map);
+                            searchBoxWrapper.style.display = 'none';
+                            searchInput.value = '';
+                        });
+                        searchResultsUl.appendChild(li);
+                    }
+                    return; 
+                }
+            }
+
+            const queryLower = query.toLowerCase();
+            const matches = roadIndexList.filter(item => item.displayName.toLowerCase().includes(queryLower));
+
+            matches.slice(0, 30).forEach(match => {
+                const li = document.createElement('li');
+                li.innerHTML = `<span>${match.displayName}</span><span class="road-len road-meta">${match.lengthStr}</span>`;
+                
+                li.addEventListener('click', () => {
+                    map.fitBounds(match.bounds, { maxZoom: 17 });
+                    searchBoxWrapper.style.display = 'none';
+                    searchInput.value = '';
+                });
+                searchResultsUl.appendChild(li);
+            });
+        });
+
+        function updateMapViewport() {
+            const currentZoom = map.getZoom();
+            const newWeight = getWeightForZoom(currentZoom);
+
+            for (let i = 0; i < parsedPolylines.length; i++) {
+                parsedPolylines[i].setStyle({ weight: newWeight });
+            }
+
+            dynamicLabelsGroup.clearLayers();
+
+            const showRoads = currentZoom >= ZOOM_THRESHOLD_ROAD_NAME;
+            const showChainage = currentZoom >= ZOOM_THRESHOLD_CHAINAGE;
+
+            if (!showRoads && !showChainage) return;
+
+            const mapBounds = map.getBounds();
+            const mapCenter = map.getCenter();
+
+            let visibleRoadsCandidates = [];
+
+            for (const uniqueKey in globalRoadData) {
+                const road = globalRoadData[uniqueKey];
+                const pts = road.points;
+                if (!pts || pts.length === 0) continue;
+
+                let pointsInView = [];
+                for (let i = 0; i < pts.length; i++) {
+                    if (mapBounds.contains(pts[i].latLng)) {
+                        pointsInView.push(pts[i]);
+                    }
+                }
+
+                if (pointsInView.length > 0) {
+                    const visibleMidIndex = Math.floor(pointsInView.length / 2);
+                    const dynamicAnchorPoint = pointsInView[visibleMidIndex].latLng;
+                    const centerDist = flatDistanceSquare(mapCenter.lat, mapCenter.lng, dynamicAnchorPoint[0], dynamicAnchorPoint[1]);
+
+                    if (showRoads) {
+                        visibleRoadsCandidates.push({
+                            name: road.displayName,
+                            anchor: dynamicAnchorPoint,
+                            distanceToCenter: centerDist
+                        });
+                    }
+
+                    if (showChainage) {
+                        const skipStep = currentZoom === 16 ? 4 : (currentZoom === 17 ? 2 : 1);
+                        for (let i = 0; i < pointsInView.length; i += skipStep) {
+                            L.marker(pointsInView[i].latLng, { icon: L.divIcon({ className: 'invisible-icon' }), interactive: false })
+                                .bindTooltip(String(pointsInView[i].chainage), { permanent: true, direction: 'top', className: 'chainage-label', offset: [0, -4] })
+                                .addTo(dynamicLabelsGroup);
+                        }
+                    }
+                }
+            }
+
+            if (showRoads && visibleRoadsCandidates.length > 0) {
+                visibleRoadsCandidates.sort((a, b) => a.distanceToCenter - b.distanceToCenter);
+                const top3Roads = visibleRoadsCandidates.slice(0, 3);
+                
+                top3Roads.forEach(roadData => {
+                    L.marker(roadData.anchor, { icon: L.divIcon({ className: 'invisible-icon' }), interactive: false })
+                        .bindTooltip(roadData.name, { permanent: true, direction: 'center', className: 'road-label' })
+                        .addTo(dynamicLabelsGroup);
+                });
+            }
+        }
+
+        map.on('zoomend', updateMapViewport);
+        map.on('moveend', updateMapViewport);
+    </script>
 </body>
 </html>
